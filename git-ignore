@@ -1,0 +1,15 @@
+# data & large artifacts
+raw/
+spectrograms*/
+*.npz
+*.bdf
+# checkpoints / logs
+*.pth
+pretrain_checkpoints/
+*.log
+# backups / caches
+*.bak
+__pycache__/
+*.pyc
+.DS_Store
+desktop.ini
