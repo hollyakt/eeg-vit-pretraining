@@ -13,6 +13,7 @@ import gc
 
 from pathlib import Path
 
+from pathlib import Path
 from timm.data import Mixup
 
 from timm.scheduler import create_scheduler
@@ -102,16 +103,23 @@ def get_args_parser():
                         help='LR decay rate (default: 0.1)')
 
     # * Finetuning params
+    # Default to first checkpoint in pretrain_checkpoints_full directory
+    default_ckpt = Path(__file__).parent / "pretrain_checkpoints_full" / "pretrain_ckpt_ep0001.pth"
     parser.add_argument(
-        '--finetune', default='/home/pmi_lab/EEG_challenge/R1_mini_L100/transformer/channel_wise/checkpoints/jbest_ckpt_ep0310.pth', help='finetune from checkpoint')
+        '--finetune', default=str(default_ckpt), 
+        help='path to pretrain checkpoint for finetuning')
 
     # Dataset parameters
-    parser.add_argument('--data_location', default='/home/pmi_lab/EEG_challenge/EEG_challenge/spectrograms_5fold',
-                        type=str, help='semantic granularity')
-    parser.add_argument('--pfactor_csv', default='/home/pmi_lab/EEG_challenge/EEG_challenge/transformer/channel_wise/all_participants.csv',
+    default_data_dir = Path(__file__).parent / "spectrograms_5fold"
+    parser.add_argument('--data_location', default=str(default_data_dir),
+                        type=str, help='path to spectrograms directory')
+    
+    default_csv = Path(__file__).parent / "all_participants.csv"
+    parser.add_argument('--pfactor_csv', default=str(default_csv),
                         type=str, help='path to p-factor csv file')
 
-    parser.add_argument('--output_dir', default=R'/home/pmi_lab/EEG_challenge/EEG_challenge/finetuning/model2/f1',
+    default_out = Path(__file__).parent / "finetuning" / "model2" / "fold1"
+    parser.add_argument('--output_dir', default=str(default_out),
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--seed', default=0, type=int)

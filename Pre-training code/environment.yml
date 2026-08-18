@@ -1,0 +1,25 @@
+name: eeg2025
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - scikit-learn>=1.3
+  - pillow=11.3.*
+  - typing-extensions
+  - mne>=1.5
+  - pip:
+      # --extra-index-url ADDS the PyTorch index on top of PyPI, so timm/
+      # matplotlib still resolve from PyPI. (Using --index-url instead would
+      # REPLACE PyPI and break those two — they are not on the PyTorch index.)
+      - --extra-index-url https://download.pytorch.org/whl/cu124
+      # Pin the exact cu124 builds we confirmed working. The +cu124 local
+      # version tag is what forces the right CUDA build and prevents the
+      # silent cu121->mismatch that bit us before.
+      - torch==2.6.0+cu124
+      - torchvision==0.21.0+cu124
+      - timm
+      - matplotlib

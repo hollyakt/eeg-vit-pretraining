@@ -11,3 +11,6 @@ logs/
 *.err
 __pycache__/
 *.pyc
+archives/
+*.log
+.vscode/

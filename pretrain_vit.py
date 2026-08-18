@@ -39,127 +39,96 @@ from torchvision import transforms
 
 class EEGSpectrogramDataset(Dataset):
     """
-    Generic dataset for loading EEG spectrograms from npz files.
-    Supports both Model 1 (reaction time - 2s windows) and Model 2 (P-factor - 30/45s windows).
+    Lazy dataset for EEG spectrogram .npz files.
+
+    Instead of preloading every spectrogram into RAM, this indexes
+    (file, window) pairs up front and loads each window from disk on demand,
+    so memory stays flat regardless of how many files/releases are used.
+
+    Each item is a FloatTensor of shape (128, 224, 224).
     """
-    
-    def __init__(self, data_dir: str, npz_pattern: str = "*.npz", 
-                 max_samples: Optional[int] = None, 
-                 augment: bool = False, 
+
+    def __init__(self, data_dir: str, npz_pattern: str = "*.npz",
+                 max_samples: Optional[int] = None,
+                 augment: bool = False,
                  normalize: bool = True):
-        """
-        Args:
-            data_dir: Directory containing .npz spectrogram files
-            npz_pattern: Pattern to match .npz files (e.g., "*.npz")
-            max_samples: Maximum number of samples to load (for testing)
-            augment: Whether to apply data augmentation
-            normalize: Whether to normalize spectrograms to [0, 1]
-        """
         self.data_dir = Path(data_dir)
         self.augment = augment
         self.normalize = normalize
-        self.samples = []
-        
-        # Find all matching .npz files
+
         npz_files = sorted(self.data_dir.glob(npz_pattern))
         print(f"Found {len(npz_files)} .npz files in {data_dir}")
-        
         if len(npz_files) == 0:
             raise ValueError(f"No .npz files found in {data_dir}")
-        
-        # Load spectrograms from all files
+
+        self.index = []
         for npz_file in npz_files:
             try:
-                data = np.load(npz_file)
-                specs = data['spectrograms']  # Expected shape: (n_channels, n_windows, 224, 224)
-                
-                # Handle both formats: 
-                # - (n_channels, n_windows, 224, 224) from Model 2 processing
-                # - (n_windows, n_channels, 224, 224) or single channel from Model 1
-                
-                if specs.ndim == 4:
-                    if specs.shape[0] == 128:  # (128, n_windows, 224, 224)
-                        for window_idx in range(specs.shape[1]):
-                            self.samples.append({
-                                'file': str(npz_file),
-                                'spec': specs[:, window_idx, :, :].astype(np.float32),  # (128, 224, 224)
-                                'window_idx': window_idx
-                            })
-                    elif specs.shape[-1] == 224 and specs.shape[-2] == 224:
-                        # Single window or differently formatted data
-                        self.samples.append({
-                            'file': str(npz_file),
-                            'spec': specs.astype(np.float32),
-                            'window_idx': 0
-                        })
-                
-                # Clean up
-                del data
-                gc.collect()
-                
+                shape = self._spectrograms_shape(npz_file)
             except Exception as e:
-                print(f"Error loading {npz_file}: {e}")
+                print(f"Error indexing {npz_file}: {e}")
                 continue
-        
+            if len(shape) == 4 and shape[0] == 128:
+                for w in range(shape[1]):
+                    self.index.append((str(npz_file), w))
+            elif len(shape) == 3 and shape[-1] == 224 and shape[-2] == 224:
+                self.index.append((str(npz_file), -1))
+            else:
+                print(f"Skipping {npz_file}: unexpected shape {shape}")
+
         if max_samples:
-            self.samples = self.samples[:max_samples]
-        
-        print(f"Loaded {len(self.samples)} spectrogram samples")
-        if len(self.samples) == 0:
-            raise ValueError("No spectrogram samples loaded")
-    
+            self.index = self.index[:max_samples]
+
+        print(f"Indexed {len(self.index)} spectrogram samples (lazy loading)")
+        if len(self.index) == 0:
+            raise ValueError("No spectrogram samples found")
+
+        self._cache_path = None
+        self._cache_arr = None
+
+    @staticmethod
+    @staticmethod
+       def _spectrograms_shape(npz_path):
+           return tuple(np.load(npz_path, mmap_mode="r").shape)
+
     def __len__(self):
-        return len(self.samples)
-    
+        return len(self.index)
+
+    def _load_array(self, npz_path):
+        if npz_path != self._cache_path:
+           self._cache_arr = np.load(npz_path, mmap_mode="r")
+            self._cache_path = npz_path
+        return self._cache_arr
+
     def __getitem__(self, idx):
-        sample = self.samples[idx]
-        spec = sample['spec']  # Shape: (128, 224, 224)
-        
-        # Ensure correct shape
+        npz_path, w = self.index[idx]
+        arr = self._load_array(npz_path)
+
+        if w < 0:
+            spec = np.asarray(arr, dtype=np.float32)
+        else:
+            spec = arr[:, w, :, :].astype(np.float32)
+
         if spec.ndim != 3 or spec.shape[0] != 128:
             raise ValueError(f"Unexpected spectrogram shape: {spec.shape}, expected (128, 224, 224)")
-        
-        # Normalize to [0, 1]
+
         if self.normalize:
-            spec_min, spec_max = spec.min(), spec.max()
-            if spec_max > spec_min:
-                spec = (spec - spec_min) / (spec_max - spec_min)
-            else:
-                spec = np.zeros_like(spec)
-        
-        # Apply augmentation (simple augmentation)
+            smin, smax = spec.min(), spec.max()
+            spec = (spec - smin) / (smax - smin) if smax > smin else np.zeros_like(spec)
+
         if self.augment:
             spec = self._augment_spectrogram(spec)
-        
-        # Convert to tensor
-        spec_tensor = torch.from_numpy(spec).float()
-        
-        return spec_tensor
 
+        return torch.from_numpy(spec).float()
 
     @staticmethod
     def _augment_spectrogram(spec: np.ndarray) -> np.ndarray:
-        """
-        Light data augmentation for spectrograms.
-        Includes: random contrast, slight rotation, Gaussian noise.
-        """
         spec = spec.copy()
-        
-        # Random contrast adjustment (0.9 - 1.1x)
-        contrast = np.random.uniform(0.9, 1.1)
-        spec = spec * contrast
-        spec = np.clip(spec, 0, 1)
-        
-        # Slight time jittering (shift by 0-2 pixels)
+        spec = np.clip(spec * np.random.uniform(0.9, 1.1), 0, 1)
         shift = np.random.randint(-2, 3)
         if shift != 0:
             spec = np.roll(spec, shift, axis=-1)
-        
-        # Gentle Gaussian noise
-        noise = np.random.normal(0, 0.01, spec.shape)
-        spec = spec + noise
-        spec = np.clip(spec, 0, 1)
-        
+        spec = np.clip(spec + np.random.normal(0, 0.01, spec.shape), 0, 1)
         return spec
 
 
