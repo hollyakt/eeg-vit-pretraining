@@ -218,6 +218,8 @@ def main():
     p.add_argument("--out_dir", required=True, help="Where to write .npz spectrogram files.")
     p.add_argument("--pattern", default="**/*.bdf", help="Glob (relative to raw_dir) for input files.")
     p.add_argument("--limit", type=int, default=None, help="Only process the first N files (debug).")
+    p.add_argument("--num_shards", type=int, default=1, help="Total number of array shards.")
+    p.add_argument("--shard_id", type=int, default=0, help="This shard index in [0, num_shards).")
 
     # Signal / preprocessing
     p.add_argument("--target_sfreq", type=float, default=100.0,
@@ -250,6 +252,8 @@ def main():
     bdf_files = sorted(raw_dir.glob(args.pattern))
     if args.limit:
         bdf_files = bdf_files[: args.limit]
+    if args.num_shards > 1:
+        bdf_files = bdf_files[args.shard_id :: args.num_shards]
 
     print("=" * 78)
     print("build_pretrain_data.py")

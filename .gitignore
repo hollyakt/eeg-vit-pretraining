@@ -1,0 +1,13 @@
+*.pth
+pretrain_checkpoints*/
+spectrograms*/
+raw/
+raw_zips/
+*.npz
+*.npy
+*.bdf
+logs/
+*.out
+*.err
+__pycache__/
+*.pyc
